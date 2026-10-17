@@ -1,4 +1,4 @@
-import { buildPreset, type PresetKind } from './anim';
+import { buildPreset, type KeyVals, type PresetKind } from './anim';
 import { currentEff } from './actions';
 import { applyPose, capturePose, findLayer, reparent, setKey, setPivot } from './edit';
 import { autoParent, importFiles } from './importer';
@@ -246,10 +246,11 @@ export async function executeMcpCommand(method: string, p: Params = {}) {
           }
           d.activeClipId = clip.id;
         }
-        const vals: Record<string, number | null> = {};
-        for (const k of ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity', 'variant'] as const) {
+        const vals: Partial<KeyVals> & { variant?: number | null } = {};
+        for (const k of ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity'] as const) {
           if (p[k] != null) vals[k] = Number(p[k]);
         }
+        if (p.variant != null) vals.variant = Math.max(0, Math.round(Number(p.variant)));
         setKey(d, id, frame, vals);
         const clip = d.clips.find((c) => c.id === d.activeClipId);
         const key = clip?.tracks[id]?.find((k) => k.frame === frame);
