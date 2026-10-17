@@ -1,0 +1,60 @@
+# Vbones
+
+분리된 SD 캐릭터 PNG를 브라우저에 올려서 파츠 배치, Pivot, 부모관계, Pose, 간단한 애니메이션, Squash & Stretch를 빠르게 테스트하는 무료 로컬 웹앱.
+
+서버·로그인·클라우드 없음. 모든 이미지와 데이터는 브라우저 안에서만 처리됩니다.
+
+## 실행
+
+```bash
+npm install
+npm run dev
+```
+
+브라우저에서 표시된 주소(기본 http://localhost:5173)를 엽니다. 배포용 빌드는 `npm run build` (결과: `dist/`, 정적 호스팅 가능).
+
+## 1분 시작
+
+1. 파츠 PNG/WebP 여러 개를 캔버스에 드래그 앤 드롭 (또는 **데모 캐릭터 불러오기**).
+2. 캐릭터를 클릭해서 파츠 선택 → 드래그로 이동.
+3. 타임라인의 **Preset** (Idle / Squash / Stretch / Attack / Hit / Bounce) 클릭 → 바로 재생.
+
+### 파일 이름 규칙 (자동 설정)
+
+- 파일 이름이 레이어 이름이 됩니다. `Head`, `Body`, `Arm_L`, `Leg_R`, `Hand_R`, `Hair_Front`, `Hair_Back`, `Eye`, `Mouth`, `Weapon`/`Sword` 등을 인식해서 **Role, Pivot, 부모 관계, 그리기 순서**를 자동으로 잡습니다. Hair 레이어는 Spring이 켜진 상태로 들어옵니다.
+- 표정 변형: `Eye@Blink.png`, `Mouth@Open.png` 처럼 `@` 뒤에 이름을 붙이면 같은 레이어의 Variant로 등록됩니다.
+- 모든 파츠를 같은 크기의 캔버스(예: 512×512)로 내보내면 위치가 그대로 맞춰집니다.
+
+## 조작
+
+| 동작 | 방법 |
+|---|---|
+| 이동 / 회전 / 스케일 / 피벗 | `W` / `E` / `R` / `P` |
+| Shift | 이동 미세 조절 · 회전 15° 스냅 · 스케일 균일 |
+| 줌 / 팬 | 마우스 휠 / 중클릭 드래그 또는 `Space`+드래그 |
+| Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` (또는 `Ctrl+Y`) |
+| 복제 / 삭제 | `Ctrl+D` / `Delete` |
+| 키프레임 | `K` (선택 레이어), 타임라인의 Key All |
+| 재생 / 정지 | `Enter` 또는 툴바 Play / Stop |
+
+- **Layers (왼쪽)**: 위가 앞쪽. 드래그로 순서 변경, 더블클릭으로 이름 변경, 눈/자물쇠 아이콘으로 Show/Hide·Lock.
+- **Inspector (오른쪽)**
+  - *Layer*: 이름, Parent, Role, Transform 숫자 입력, Pivot, 표정 Variant, Left 이미지, Spring.
+  - *Pose*: 현재 상태를 Pose로 저장 / 적용 / 이름 변경 / 복제 / 삭제.
+  - *Squash*: 슬라이더로 Role별 Squash ↔ Stretch 실시간 미리보기, Setup 포즈에 적용 또는 키로 기록.
+  - *Scene*: 좌우 방향(Mirror / Sprite Set 모드), 이름 기준 Auto Parent, 데모, 새 프로젝트.
+- **Timeline (아래)**: `● Animate`를 켜면 캔버스·Inspector에서 바꾼 값이 현재 프레임의 키로 기록됩니다. 끄면 기본(Setup) 포즈를 편집합니다. 키 다이아몬드를 드래그해서 프레임 이동, 클릭 후 Easing 선택 (Linear, Ease In, Ease Out, Ease In Out, Ease Out Back). 초록 키 = 표정 교체 키.
+- **Pivot**은 Setup 모드에서만 편집합니다. 피벗을 옮겨도 이미지와 자식은 제자리에 있습니다.
+
+## 저장 / 내보내기
+
+- **Save**: `project.json` + `images/` 를 담은 ZIP. **Load**로 ZIP 또는 JSON을 불러옵니다.
+- **JSON**: 이미지 없이 `project.json`만 저장. JSON을 불러온 뒤 같은 파일 이름의 이미지를 드롭하면 자동으로 연결됩니다.
+- **Export PNG**: 현재 프레임을 캐릭터 영역만 잘라 저장 (배경 Checker면 투명).
+- **Export WebM**: 현재 클립을 녹화해서 저장 (Chrome / Edge / Firefox).
+
+## 범위
+
+Transform 계층 기반 컷아웃 애니메이션 테스트 툴입니다. Bone weight, 메시 변형, 게임 엔진·Spine 내보내기는 포함하지 않습니다.
+
+기술: React 18 + TypeScript + Vite, HTML Canvas 2D, JSZip.
