@@ -8,8 +8,11 @@ import { commit, getState, redo, setUI, undo } from './store';
 import { deleteLayer, duplicateLayer } from './edit';
 import { keys } from './keys';
 import { keySelected, togglePlay } from './actions';
+import { startMcpBridge } from './mcpBridge';
 
 export function App() {
+  useEffect(() => startMcpBridge(), []);
+
   useEffect(() => {
     const typing = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
