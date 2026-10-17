@@ -4,7 +4,13 @@
 
 서버·로그인·클라우드 없음. 모든 이미지와 데이터는 브라우저 안에서만 처리됩니다.
 
-## 실행
+## 바로 사용 (설치 없음)
+
+https://tuiella.github.io/vbones/
+
+`main` 브랜치에 푸시하면 GitHub Actions가 자동으로 빌드해서 위 주소에 배포합니다.
+
+## 로컬 실행
 
 ```bash
 npm install
