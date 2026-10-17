@@ -94,19 +94,26 @@ MCP 클라이언트에는 다음과 같이 등록합니다. 경로는 자신의 
 
 브리지 포트를 바꾸려면 MCP 프로세스에 `VBONES_MCP_PORT` 환경변수를 지정합니다.
 
+### 보안
+
+- 브리지는 `127.0.0.1`에서만 열리고, **로컬 페이지(Origin이 `http://localhost` / `127.0.0.1`)만** 접속할 수 있습니다. 다른 웹사이트는 연결이 거부됩니다. 다른 주소에서 쓰려면 `VBONES_ALLOWED_ORIGINS=http://my-host:5173` 처럼 지정합니다.
+- MCP 서버는 실행할 때마다 무작위 토큰을 만들어 저장소 루트의 `.vbones-mcp-token`에 기록합니다(git 제외). Vbones 개발 서버가 같은 출처의 페이지에만 이 토큰을 전달하고, 토큰이 없으면 브리지 연결이 거부됩니다.
+- `vbones_import_images`의 `paths`는 `.png .webp .jpg .jpeg .gif` 확장자이면서 실제 이미지 시그니처를 가진 20MB 이하 파일만 읽습니다.
+- Vbones 탭은 하나만 명령을 받습니다. 새 탭을 열면 그 탭으로 넘어가고, 이전 탭은 연결이 해제됩니다.
+
 ### MCP 도구
 
 | Tool | 역할 |
 |---|---|
 | `vbones_get_state` | 현재 Rig, Layer, Pose, Clip, 재생 상태 읽기 |
 | `vbones_get_layers` | 레이어·부모·Role·Transform·Pivot 목록 읽기 |
-| `vbones_import_images` | 로컬 이미지 경로 또는 base64 이미지 업로드 |
+| `vbones_import_images` | 로컬 이미지 경로 또는 base64 이미지 업로드 (한 번에 묶어서 가져오므로 드래그 앤 드롭과 같은 순서·부모·표정 처리) |
 | `vbones_auto_rig` | 파일명/Role 추론으로 자동 부모관계 설정 |
 | `vbones_rig_layer` | 레이어 Role과 Parent 지정 |
 | `vbones_set_parent` | 부모 관계 지정/해제 |
 | `vbones_set_pivot` | 이미지 로컬 픽셀 좌표로 Pivot 지정 |
-| `vbones_set_anchor` | 0~1 정규화 좌표로 Anchor/Pivot 지정 |
-| `vbones_set_transform` | 위치·회전·스케일·투명도·표시 상태 변경 |
+| `vbones_set_anchor` | 0~1 정규화 좌표로 Anchor/Pivot 지정. 기본은 그림이 있는(불투명) 영역 기준, `space: "image"`면 이미지 전체 기준 |
+| `vbones_set_transform` | 위치·회전·스케일·투명도·표시 상태 변경. Animate 모드에서는 현재 프레임 키로 기록 (`target`: `auto`/`setup`/`key`) |
 | `vbones_create_pose` | 현재 화면을 Pose로 저장 |
 | `vbones_apply_pose` | 저장한 Pose 적용 |
 | `vbones_create_basic_animation` | Idle/Squash/Stretch/Attack/Hit/Bounce 프리셋 생성 |
@@ -115,7 +122,7 @@ MCP 클라이언트에는 다음과 같이 등록합니다. 경로는 자신의 
 
 예를 들어 LLM에 다음처럼 요청할 수 있습니다.
 
-> Head의 앵커를 목 위치인 (0.5, 0.9)로 잡고 Body의 자식으로 연결해. 오른팔은 Body에 연결하고 어깨 앵커를 (0.5, 0.1)로 잡아. 그 다음 Attack 애니메이션을 만들어서 재생해.
+> Head의 앵커를 목 위치인 (0.5, 0.95)로 잡고 Body의 자식으로 연결해. 오른팔은 Body에 연결하고 어깨 앵커를 (0.5, 0.1)로 잡아. 그 다음 Attack 애니메이션을 만들어서 재생해.
 
 이미지 파일명이 `Head.png`, `Body.png`, `Arm_R.png`처럼 의미를 포함하면 `vbones_import_images` → `vbones_auto_rig`만으로 기본 Role, Pivot, 부모관계를 빠르게 구성할 수 있습니다.
 

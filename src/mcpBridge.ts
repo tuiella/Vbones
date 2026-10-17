@@ -15,14 +15,37 @@ function scheduleReconnect(url: string) {
   if (stopped || retryTimer != null) return;
   retryTimer = window.setTimeout(() => {
     retryTimer = null;
-    connect(url);
+    void connect(url);
   }, 1500);
 }
 
-function connect(url: string) {
-  if (stopped || socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
+const TOKEN_PATH = '/__vbones_mcp_token';
+let connecting = false;
+
+/** The token is written by mcp/server.mjs and served only by our own dev server (same-origin). */
+async function fetchToken(): Promise<string | null> {
   try {
-    socket = new WebSocket(url);
+    const r = await fetch(TOKEN_PATH, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const t = (await r.text()).trim();
+    return /^[a-f0-9]{32,128}$/.test(t) ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+async function connect(url: string) {
+  if (stopped || connecting || socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
+  connecting = true;
+  const token = await fetchToken();
+  connecting = false;
+  if (stopped) return;
+  if (!token) {
+    scheduleReconnect(url);
+    return;
+  }
+  try {
+    socket = new WebSocket(`${url}?token=${encodeURIComponent(token)}`);
   } catch {
     scheduleReconnect(url);
     return;
@@ -50,8 +73,13 @@ function connect(url: string) {
     }
   });
 
-  socket.addEventListener('close', () => {
+  socket.addEventListener('close', (ev) => {
     socket = null;
+    if (ev.code === 4000) {
+      // another Vbones tab took over the bridge; stay quiet instead of fighting for it
+      status('MCP bridge: 다른 Vbones 탭이 연결되어 이 탭은 연결 해제됨 (새로고침하면 다시 연결)');
+      return;
+    }
     scheduleReconnect(url);
   });
 
@@ -63,7 +91,7 @@ function connect(url: string) {
 export function startMcpBridge(url = DEFAULT_URL) {
   if (!enabled()) return () => {};
   stopped = false;
-  connect(url);
+  void connect(url);
   return () => {
     stopped = true;
     if (retryTimer != null) window.clearTimeout(retryTimer);
