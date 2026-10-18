@@ -1,6 +1,6 @@
 import type { Doc, Eff, Keyframe, Layer, Pose, Transform, UI } from './types';
 import { evalKeys, layerVals, KeyVals } from './anim';
-import { baseEff, computeWorld } from './scene';
+import { baseEff, computeWorld, resolveEff } from './scene';
 import { I, applyVec, decompose, fromTRS, inv, mul, r4, uid } from './math';
 
 type D = Doc;
@@ -70,8 +70,27 @@ export function reparent(d: D, id: string, pid: string | null) {
   const w = computeWorld(doc, baseEff(doc));
   const Pw = pid ? w.get(pid) ?? I : I;
   const t = decompose(mul(inv(Pw), w.get(id) ?? I));
-  if (L.scaleY < 0 && t.scaleY > 0) {
-    // keep flips on the same axis
+  // keep the world placement of every keyframe too, evaluated in its own clip at its own frame
+  for (const c of d.clips) {
+    const keys = c.tracks[id];
+    if (!keys?.length) continue;
+    const cdoc = { ...doc, activeClipId: c.id };
+    const fixed = keys.map((k) => {
+      const kw = computeWorld(cdoc, resolveEff(cdoc, { animated: true, frame: k.frame, sq: 0 }));
+      return decompose(mul(inv(pid ? kw.get(pid) ?? I : I), kw.get(id) ?? I));
+    });
+    // decompose returns -180..180; unwrap so keys keep interpolating the short way they did before
+    for (let i = 1; i < fixed.length; i++) {
+      const want = fixed[i - 1].rotation + (keys[i].rotation - keys[i - 1].rotation);
+      fixed[i].rotation += Math.round((want - fixed[i].rotation) / 360) * 360;
+    }
+    keys.forEach((k, i) => {
+      k.x = r4(fixed[i].x);
+      k.y = r4(fixed[i].y);
+      k.rotation = r4(fixed[i].rotation);
+      k.scaleX = r4(fixed[i].scaleX);
+      k.scaleY = r4(fixed[i].scaleY);
+    });
   }
   L.x = r4(t.x);
   L.y = r4(t.y);
@@ -156,7 +175,9 @@ export function applyPose(d: D, ui: UI, pose: Pose) {
     if (!p) continue;
     const { visible, ...vals } = p;
     if (ui.animate) setKey(d, L.id, Math.round(ui.frame), vals);
-    else Object.assign(L, vals, { visible });
+    else Object.assign(L, vals);
+    // visibility is not keyable, so it always goes to the layer
+    L.visible = visible;
   }
 }
 

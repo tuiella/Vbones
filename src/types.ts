@@ -71,6 +71,8 @@ export interface Clip {
   length: number; // frames
   loop: boolean;
   tracks: Record<string, Keyframe[]>;
+  /** set on clips generated from a preset; only those may be regenerated in place */
+  preset?: string;
 }
 
 export interface Doc {

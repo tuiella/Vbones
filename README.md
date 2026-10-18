@@ -2,7 +2,7 @@
 
 분리된 SD 캐릭터 PNG를 브라우저에 올려서 파츠 배치, Pivot, 부모관계, Pose, 간단한 애니메이션, Squash & Stretch를 빠르게 테스트하는 무료 로컬 웹앱.
 
-서버·로그인·클라우드 없음. 모든 이미지와 데이터는 브라우저 안에서만 처리됩니다.
+기본 사용은 서버·로그인·클라우드가 필요 없습니다. 모든 이미지와 데이터는 브라우저 안에서 처리됩니다. LLM 제어가 필요할 때만 선택적으로 로컬 MCP 브리지를 실행할 수 있습니다.
 
 ## 바로 사용 (설치 없음)
 
@@ -58,6 +58,79 @@ npm run dev
 - **JSON**: 이미지 없이 `project.json`만 저장. JSON을 불러온 뒤 같은 파일 이름의 이미지를 드롭하면 자동으로 연결됩니다.
 - **Export PNG**: 현재 프레임을 캐릭터 영역만 잘라 저장 (배경 Checker면 투명).
 - **Export WebM**: 현재 클립을 녹화해서 저장 (Chrome / Edge / Firefox).
+
+## MCP / LLM 제어
+
+Vbones는 선택적으로 로컬 MCP 서버를 통해 Claude Code, Cursor, Codex 등 MCP 클라이언트에서 조작할 수 있습니다.
+
+MCP 모드는 **로컬 개발 서버에서 사용**하는 것을 전제로 합니다. GitHub Pages의 HTTPS 페이지는 브라우저 보안 정책 때문에 로컬 브리지(`127.0.0.1`)와 연결하지 않습니다.
+
+### 실행
+
+Node.js 20 이상을 권장합니다.
+
+```bash
+npm install
+npm run dev
+```
+
+브라우저에서 `http://localhost:5173`을 엽니다. 로컬 주소에서는 Vbones가 자동으로 MCP 브리지(기본 `ws://127.0.0.1:3210`) 연결을 시도합니다. 포트는 MCP 서버가 알려주는 값을 따릅니다.
+
+MCP 클라이언트에는 다음과 같이 등록합니다. 경로는 자신의 Vbones 저장소 절대경로로 바꿉니다.
+
+```json
+{
+  "mcpServers": {
+    "vbones": {
+      "command": "node",
+      "args": ["/absolute/path/to/Vbones/mcp/server.mjs"],
+      "cwd": "/absolute/path/to/Vbones"
+    }
+  }
+}
+```
+
+클라이언트가 MCP 서버를 직접 실행하지 않는 환경에서 수동 확인하려면 `npm run mcp`를 사용할 수 있습니다. MCP 서버는 stdio를 프로토콜 채널로 사용하므로 별도 터미널 로그는 stderr에만 출력됩니다.
+
+브리지 포트를 바꾸려면 MCP 프로세스에 `VBONES_MCP_PORT` 환경변수를 지정합니다. 브라우저는 토큰 파일에 함께 기록된 포트로 접속하므로 따로 맞출 필요가 없습니다.
+
+같은 포트로 MCP 서버를 두 개 띄우면 두 번째 서버는 "port already used" 오류를 출력하고 종료합니다. 한 번에 한 MCP 클라이언트만 Vbones를 조작할 수 있습니다.
+
+명령은 받은 순서대로 하나씩 실행되고, 사용자가 레이어를 드래그하는 중이면 드래그가 끝난 뒤 실행됩니다. 시간 초과(`VBONES_MCP_TIMEOUT`, 기본 15초)가 나면 아직 적용 전인 명령은 취소되지만 이미 적용됐을 수도 있으니, 다시 시도하기 전에 `vbones_get_state`로 확인하세요.
+
+### 보안
+
+- 브리지는 `127.0.0.1`에서만 열리고, **로컬 페이지(Origin이 `http://localhost` / `127.0.0.1`)만** 접속할 수 있습니다. 다른 웹사이트는 연결이 거부됩니다. 다른 주소에서 쓰려면 `VBONES_ALLOWED_ORIGINS=http://my-host:5173` 처럼 지정합니다.
+- MCP 서버는 실행할 때마다 무작위 토큰을 만들어 저장소 루트의 `.vbones-mcp-token`에 기록합니다(git 제외). Vbones 개발 서버가 같은 출처의 페이지에만 이 토큰을 전달하고, 토큰이 없으면 브리지 연결이 거부됩니다.
+- `vbones_import_images`의 `paths`는 `.png .webp .jpg .jpeg .gif` 확장자이면서 실제 이미지 시그니처를 가진 20MB 이하 파일만 읽습니다.
+- Vbones 탭은 하나만 명령을 받습니다. 새 탭을 열면 그 탭으로 넘어가고, 이전 탭은 연결이 해제됩니다.
+- 브리지 연결은 TLS로 암호화하지 않습니다. 연결이 컴퓨터 밖으로 나가지 않는 루프백(`127.0.0.1`) 전용이라 TLS로 막을 도청 경로가 없고, 위의 Origin 검사와 토큰이 실제 보호 장치입니다.
+
+### MCP 도구
+
+| Tool | 역할 |
+|---|---|
+| `vbones_get_state` | 현재 Rig, Layer, Pose, Clip, 재생 상태 읽기 |
+| `vbones_get_layers` | 레이어·부모·Role·Transform·Pivot 목록 읽기 |
+| `vbones_import_images` | 로컬 이미지 경로 또는 base64 이미지 업로드 (한 번에 묶어서 가져오므로 드래그 앤 드롭과 같은 순서·부모·표정 처리) |
+| `vbones_auto_rig` | 파일명/Role 추론으로 자동 부모관계 설정 |
+| `vbones_rig_layer` | 레이어 Role과 Parent 지정 |
+| `vbones_set_parent` | 부모 관계 지정/해제 |
+| `vbones_set_pivot` | 이미지 로컬 픽셀 좌표로 Pivot 지정 |
+| `vbones_set_anchor` | 0~1 정규화 좌표로 Anchor/Pivot 지정. 기본은 그림이 있는(불투명) 영역 기준, `space: "image"`면 이미지 전체 기준 |
+| `vbones_set_transform` | 위치·회전·스케일·투명도·표시 상태 변경. Animate 모드에서는 현재 프레임 키로 기록 (`target`: `auto`/`setup`/`key`) |
+| `vbones_create_pose` | 현재 화면을 Pose로 저장 |
+| `vbones_apply_pose` | 저장한 Pose 적용 |
+| `vbones_create_basic_animation` | Idle/Squash/Stretch/Attack/Hit/Bounce 프리셋 생성 (같은 이름의 직접 만든 클립은 덮어쓰지 않고 `Attack 2`처럼 새 이름으로 추가) |
+| `vbones_add_keyframe` | 레이어 키프레임 생성/수정 (프레임 0~3600) |
+| `vbones_playback` | Play/Stop/Seek |
+
+예를 들어 LLM에 다음처럼 요청할 수 있습니다.
+
+> Head의 앵커를 목 위치인 (0.5, 0.95)로 잡고 Body의 자식으로 연결해. 오른팔은 Body에 연결하고 어깨 앵커를 (0.5, 0.1)로 잡아. 그 다음 Attack 애니메이션을 만들어서 재생해.
+
+이미지 파일명이 `Head.png`, `Body.png`, `Arm_R.png`처럼 의미를 포함하면 `vbones_import_images` → `vbones_auto_rig`만으로 기본 Role, Pivot, 부모관계를 빠르게 구성할 수 있습니다.
+
 
 ## 범위
 

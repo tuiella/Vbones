@@ -1,5 +1,5 @@
 import type { Doc, Layer, Role } from './types';
-import { commit, getState, status } from './store';
+import { commit, getDocGen, getState, status } from './store';
 import { getImg, loadImage, Loaded } from './images';
 import { newLayer, reparent } from './edit';
 import { uid } from './math';
@@ -90,11 +90,27 @@ export function autoParent(d: Doc, ids?: string[]) {
   return n;
 }
 
-export async function importFiles(files: File[]) {
+export interface ImportResult {
+  created: string[];
+  variants: number;
+  bound: number;
+  failed: string[];
+  /** set when the import was dropped before committing */
+  cancelled?: string;
+}
+
+/**
+ * `stillWanted` is checked after the images finish loading; returning false drops the import
+ * (e.g. an MCP request that timed out). The import is also dropped if the project was replaced meanwhile.
+ */
+export async function importFiles(files: File[], stillWanted: () => boolean = () => true): Promise<ImportResult> {
+  const gen = getDocGen();
+  const res: ImportResult = { created: [], variants: 0, bound: 0, failed: [] };
   const imgs = files.filter((f) => /\.(png|webp|jpe?g|gif)$/i.test(f.name) || f.type.startsWith('image/'));
+  for (const f of files) if (!imgs.includes(f)) res.failed.push(`${f.name}: not an image`);
   if (!imgs.length) {
     status('PNG/WebP 이미지만 가져올 수 있습니다');
-    return;
+    return res;
   }
   const doc = getState().doc;
   // bind to missing image refs (after loading a JSON project)
@@ -114,14 +130,21 @@ export async function importFiles(files: File[]) {
       }
     } catch {
       status(`읽기 실패: ${f.name}`);
+      res.failed.push(`${f.name}: could not decode image`);
     }
+  }
+  res.bound = bound;
+  if (getDocGen() !== gen || !stillWanted()) {
+    res.cancelled = getDocGen() !== gen ? 'The project was replaced while images were loading; nothing was imported' : 'Import cancelled';
+    status('가져오기 취소됨');
+    return res;
   }
   if (!fresh.length) {
     if (bound) {
       commit((d) => { d.fps = d.fps; });
       status(`이미지 ${bound}개를 프로젝트에 연결했습니다`);
     }
-    return;
+    return res;
   }
   let created = 0, variants = 0;
   commit((d) => {
@@ -149,6 +172,7 @@ export async function importFiles(files: File[]) {
       // insert by guessed z among new layers (stable for existing project)
       d.layers.push(L);
       newIds.push(L.id);
+      res.created.push(L.id);
       created++;
     }
     if (newIds.length) autoParent(d, newIds);
@@ -158,6 +182,8 @@ export async function importFiles(files: File[]) {
     // nothing
   }
   status(`레이어 ${created}개${variants ? `, 표정/variant ${variants}개` : ''}${bound ? `, 연결 ${bound}개` : ''} 가져옴`);
+  res.variants = variants;
+  return res;
 }
 
 export async function addVariantFiles(layerId: string, files: File[], asLeft?: number) {
