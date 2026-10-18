@@ -1,6 +1,9 @@
 import type { Clip, Doc, Ease, Keyframe, Layer, Role, Transform } from './types';
 import { lerp, uid } from './math';
 
+/** Upper bound for keyframe/clip frames accepted from MCP (2 minutes at 30fps); the timeline draws a tick per frame. */
+export const MAX_FRAME = 3600;
+
 export const EASES: Ease[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutBack'];
 export const EASE_LABEL: Record<Ease, string> = {
   linear: 'Linear',
@@ -222,5 +225,25 @@ export function buildPreset(doc: Doc, kind: PresetKind): Clip {
       return { ...t, frame: frames[i], opacity: L.opacity, variant: null, ease: k.ease };
     });
   }
-  return { id: uid(), name: kind, length: frames[frames.length - 1], loop: def.loop, tracks };
+  return { id: uid(), name: kind, length: frames[frames.length - 1], loop: def.loop, tracks, preset: kind };
+}
+
+/**
+ * Put a freshly built preset clip into the doc and make it active. Regenerates an earlier clip of the
+ * same preset in place, but never overwrites a user clip that merely has the same name.
+ */
+export function upsertPresetClip(d: Doc, clip: Clip): Clip {
+  const i = d.clips.findIndex((c) => c.name === clip.name && c.preset === clip.preset);
+  if (i >= 0) {
+    clip.id = d.clips[i].id;
+    d.clips[i] = clip;
+  } else {
+    const taken = new Set(d.clips.map((c) => c.name));
+    let name = clip.name;
+    for (let n = 2; taken.has(name); n++) name = `${clip.name} ${n}`;
+    clip.name = name;
+    d.clips.push(clip);
+  }
+  d.activeClipId = clip.id;
+  return clip;
 }

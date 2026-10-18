@@ -74,7 +74,7 @@ npm install
 npm run dev
 ```
 
-브라우저에서 `http://localhost:5173`을 엽니다. 로컬 주소에서는 Vbones가 자동으로 `ws://127.0.0.1:3210` MCP 브리지 연결을 시도합니다.
+브라우저에서 `http://localhost:5173`을 엽니다. 로컬 주소에서는 Vbones가 자동으로 MCP 브리지(기본 `ws://127.0.0.1:3210`) 연결을 시도합니다. 포트는 MCP 서버가 알려주는 값을 따릅니다.
 
 MCP 클라이언트에는 다음과 같이 등록합니다. 경로는 자신의 Vbones 저장소 절대경로로 바꿉니다.
 
@@ -92,7 +92,11 @@ MCP 클라이언트에는 다음과 같이 등록합니다. 경로는 자신의 
 
 클라이언트가 MCP 서버를 직접 실행하지 않는 환경에서 수동 확인하려면 `npm run mcp`를 사용할 수 있습니다. MCP 서버는 stdio를 프로토콜 채널로 사용하므로 별도 터미널 로그는 stderr에만 출력됩니다.
 
-브리지 포트를 바꾸려면 MCP 프로세스에 `VBONES_MCP_PORT` 환경변수를 지정합니다.
+브리지 포트를 바꾸려면 MCP 프로세스에 `VBONES_MCP_PORT` 환경변수를 지정합니다. 브라우저는 토큰 파일에 함께 기록된 포트로 접속하므로 따로 맞출 필요가 없습니다.
+
+같은 포트로 MCP 서버를 두 개 띄우면 두 번째 서버는 "port already used" 오류를 출력하고 종료합니다. 한 번에 한 MCP 클라이언트만 Vbones를 조작할 수 있습니다.
+
+명령은 받은 순서대로 하나씩 실행되고, 사용자가 레이어를 드래그하는 중이면 드래그가 끝난 뒤 실행됩니다. 시간 초과(`VBONES_MCP_TIMEOUT`, 기본 15초)가 나면 아직 적용 전인 명령은 취소되지만 이미 적용됐을 수도 있으니, 다시 시도하기 전에 `vbones_get_state`로 확인하세요.
 
 ### 보안
 
@@ -100,6 +104,7 @@ MCP 클라이언트에는 다음과 같이 등록합니다. 경로는 자신의 
 - MCP 서버는 실행할 때마다 무작위 토큰을 만들어 저장소 루트의 `.vbones-mcp-token`에 기록합니다(git 제외). Vbones 개발 서버가 같은 출처의 페이지에만 이 토큰을 전달하고, 토큰이 없으면 브리지 연결이 거부됩니다.
 - `vbones_import_images`의 `paths`는 `.png .webp .jpg .jpeg .gif` 확장자이면서 실제 이미지 시그니처를 가진 20MB 이하 파일만 읽습니다.
 - Vbones 탭은 하나만 명령을 받습니다. 새 탭을 열면 그 탭으로 넘어가고, 이전 탭은 연결이 해제됩니다.
+- 브리지는 `wss://`가 아닌 `ws://`를 씁니다. 연결이 컴퓨터 밖으로 나가지 않는 루프백(`127.0.0.1`) 전용이라 TLS로 막을 도청 경로가 없고, 위의 Origin 검사와 토큰이 실제 보호 장치입니다.
 
 ### MCP 도구
 
@@ -116,8 +121,8 @@ MCP 클라이언트에는 다음과 같이 등록합니다. 경로는 자신의 
 | `vbones_set_transform` | 위치·회전·스케일·투명도·표시 상태 변경. Animate 모드에서는 현재 프레임 키로 기록 (`target`: `auto`/`setup`/`key`) |
 | `vbones_create_pose` | 현재 화면을 Pose로 저장 |
 | `vbones_apply_pose` | 저장한 Pose 적용 |
-| `vbones_create_basic_animation` | Idle/Squash/Stretch/Attack/Hit/Bounce 프리셋 생성 |
-| `vbones_add_keyframe` | 레이어 키프레임 생성/수정 |
+| `vbones_create_basic_animation` | Idle/Squash/Stretch/Attack/Hit/Bounce 프리셋 생성 (같은 이름의 직접 만든 클립은 덮어쓰지 않고 `Attack 2`처럼 새 이름으로 추가) |
+| `vbones_add_keyframe` | 레이어 키프레임 생성/수정 (프레임 0~3600) |
 | `vbones_playback` | Play/Stop/Seek |
 
 예를 들어 LLM에 다음처럼 요청할 수 있습니다.

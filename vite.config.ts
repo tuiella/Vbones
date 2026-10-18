@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-// mcp/server.mjs writes a random token here; only pages served by this dev server can read it
+// mcp/server.mjs writes {token, port} here once its bridge is listening; only pages served by this dev server can read it
 // (other origins are blocked by the browser's same-origin policy), and the bridge requires it.
 const TOKEN_FILE = fileURLToPath(new URL('./.vbones-mcp-token', import.meta.url));
 
@@ -17,7 +17,7 @@ function mcpToken(): Plugin {
       // MCP server not running
     }
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Type', 'application/json');
     if (!token) {
       res.statusCode = 404;
       res.end('');

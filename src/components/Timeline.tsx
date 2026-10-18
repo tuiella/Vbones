@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { beginGesture, commit, endGesture, getState, setUI, status, useDoc, useUI } from '../store';
-import { buildPreset, EASE_LABEL, EASES, PRESETS, PresetKind } from '../anim';
+import { buildPreset, EASE_LABEL, EASES, PRESETS, PresetKind, upsertPresetClip } from '../anim';
 import { keySelected, stop, togglePlay } from '../actions';
 import { clamp, uid } from '../math';
 import type { Ease } from '../types';
@@ -33,10 +33,7 @@ export function Timeline() {
     if (!doc.layers.length) return status('먼저 이미지를 가져오세요');
     const c = buildPreset(getState().doc, k);
     commit((d) => {
-      const i = d.clips.findIndex((x) => x.name === k);
-      if (i >= 0) d.clips[i] = { ...c, id: d.clips[i].id };
-      else d.clips.push(c);
-      d.activeClipId = i >= 0 ? d.clips[i].id : c.id;
+      upsertPresetClip(d, c);
     });
     setUI({ animate: true, frame: 0, playing: true, sq: 0, selectedKey: null });
     status(`${k} 프리셋 생성 — 모든 키프레임 수정 가능`);

@@ -57,6 +57,16 @@ export function setUI(p: Partial<UI>) {
 }
 
 let gestureBase: Doc | null = null;
+let idleWaiters: (() => void)[] = [];
+/** Bumped whenever the whole document is replaced (project load). */
+let docGen = 0;
+export const getDocGen = () => docGen;
+
+/** Resolves once no UI gesture (drag/rotate/scale) is in progress. */
+export function whenIdle(): Promise<void> {
+  if (!gestureBase) return Promise.resolve();
+  return new Promise((r) => idleWaiters.push(r));
+}
 
 /** Update doc. Adds an undo step unless inside a gesture. */
 export function commit(fn: (d: Doc) => void) {
@@ -79,6 +89,9 @@ export function endGesture() {
   }
   gestureBase = null;
   emit();
+  const w = idleWaiters;
+  idleWaiters = [];
+  w.forEach((r) => r());
 }
 
 export function undo() {
@@ -98,6 +111,7 @@ export function redo() {
 }
 
 export function replaceDoc(doc: Doc) {
+  docGen++;
   state = { ...state, doc, past: [], future: [], ui: { ...state.ui, selectedId: null, selectedKey: null, frame: 0, playing: false } };
   emit();
 }

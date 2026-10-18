@@ -11,6 +11,7 @@ import { WebSocketServer } from 'ws';
 
 const PORT = Number(process.env.VBONES_MCP_PORT || 3210);
 const TIMEOUT_MS = Number(process.env.VBONES_MCP_TIMEOUT || 15000);
+const MAX_FRAME = 3600; // keep in sync with src/anim.ts
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const IMAGE_EXT = new Set(['.png', '.webp', '.jpg', '.jpeg', '.gif']);
 const pending = new Map();
@@ -21,15 +22,21 @@ let active = null; // the single browser tab that receives commands (newest wins
 // 1) Origin must be a local page (blocks any website open in the user's browser).
 // 2) A random per-run token, written to .vbones-mcp-token and served only by the Vbones dev server
 //    (vite.config.ts) to same-origin pages, must be presented in the connection URL.
+//    The file also carries the port, so the browser follows VBONES_MCP_PORT.
 const TOKEN = randomBytes(24).toString('hex');
 const TOKEN_FILE = resolve(dirname(fileURLToPath(import.meta.url)), '..', '.vbones-mcp-token');
 const extraOrigins = (process.env.VBONES_ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
-try {
-  writeFileSync(TOKEN_FILE, TOKEN, { mode: 0o600 });
-} catch (error) {
-  console.error(`Vbones MCP: cannot write token file ${TOKEN_FILE}: ${error.message}`);
+let ownsTokenFile = false;
+function writeToken() {
+  try {
+    writeFileSync(TOKEN_FILE, JSON.stringify({ token: TOKEN, port: PORT }), { mode: 0o600 });
+    ownsTokenFile = true;
+  } catch (error) {
+    console.error(`Vbones MCP: cannot write token file ${TOKEN_FILE}: ${error.message}`);
+  }
 }
 const removeToken = () => {
+  if (!ownsTokenFile) return; // never delete the file of another, running bridge
   try {
     unlinkSync(TOKEN_FILE);
   } catch {}
@@ -102,7 +109,18 @@ wss.on('connection', (ws) => {
   });
 });
 
+// written only once we really listen, so a second server that fails to bind can't clobber the first one's token
+wss.on('listening', writeToken);
+
 wss.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    // Without a listener every tool would fail with "not connected"; fail loudly instead.
+    console.error(
+      `Vbones MCP: port ${PORT} is already used (probably by another Vbones MCP server). ` +
+        'Only one MCP client can drive Vbones at a time with the same port; stop the other one or set VBONES_MCP_PORT.',
+    );
+    process.exit(1);
+  }
   console.error(`Vbones MCP bridge error: ${error.message}`);
 });
 
@@ -122,7 +140,14 @@ function callBrowser(method, params = {}) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(id);
-      reject(new Error(`Timed out waiting for Vbones: ${method}`));
+      // ask the tab to drop the command if it has not committed yet
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'cancel', id }));
+      reject(
+        new Error(
+          `Timed out waiting for Vbones: ${method}. The command was cancelled, but it may already have been applied — ` +
+            'call vbones_get_state to check before retrying.',
+        ),
+      );
     }, TIMEOUT_MS);
     pending.set(id, { resolve, reject, timer, ws });
     ws.send(JSON.stringify({ type: 'command', id, method, params }));
@@ -434,7 +459,7 @@ function buildServer() {
       description: 'Create or update a transform keyframe for one layer. Optionally creates/selects a named clip.',
       inputSchema: z.object({
         layer: z.string(),
-        frame: z.number().int().min(0),
+        frame: z.number().int().min(0).max(MAX_FRAME),
         clipName: z.string().optional(),
         x: z.number().optional(),
         y: z.number().optional(),
@@ -461,7 +486,7 @@ function buildServer() {
       description: 'Play, stop, or seek the active Vbones animation clip.',
       inputSchema: z.object({
         action: z.enum(['play', 'stop', 'seek']),
-        frame: z.number().min(0).optional(),
+        frame: z.number().min(0).max(MAX_FRAME).optional(),
       }),
     },
     async (args) => {

@@ -1,5 +1,5 @@
 import type { Doc, Layer, Role } from './types';
-import { commit, getState, status } from './store';
+import { commit, getDocGen, getState, status } from './store';
 import { getImg, loadImage, Loaded } from './images';
 import { newLayer, reparent } from './edit';
 import { uid } from './math';
@@ -95,9 +95,16 @@ export interface ImportResult {
   variants: number;
   bound: number;
   failed: string[];
+  /** set when the import was dropped before committing */
+  cancelled?: string;
 }
 
-export async function importFiles(files: File[]): Promise<ImportResult> {
+/**
+ * `stillWanted` is checked after the images finish loading; returning false drops the import
+ * (e.g. an MCP request that timed out). The import is also dropped if the project was replaced meanwhile.
+ */
+export async function importFiles(files: File[], stillWanted: () => boolean = () => true): Promise<ImportResult> {
+  const gen = getDocGen();
   const res: ImportResult = { created: [], variants: 0, bound: 0, failed: [] };
   const imgs = files.filter((f) => /\.(png|webp|jpe?g|gif)$/i.test(f.name) || f.type.startsWith('image/'));
   for (const f of files) if (!imgs.includes(f)) res.failed.push(`${f.name}: not an image`);
@@ -127,6 +134,11 @@ export async function importFiles(files: File[]): Promise<ImportResult> {
     }
   }
   res.bound = bound;
+  if (getDocGen() !== gen || !stillWanted()) {
+    res.cancelled = getDocGen() !== gen ? 'The project was replaced while images were loading; nothing was imported' : 'Import cancelled';
+    status('가져오기 취소됨');
+    return res;
+  }
   if (!fresh.length) {
     if (bound) {
       commit((d) => { d.fps = d.fps; });

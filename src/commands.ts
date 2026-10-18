@@ -1,4 +1,4 @@
-import { buildPreset, type KeyVals, type PresetKind } from './anim';
+import { buildPreset, MAX_FRAME, upsertPresetClip, type KeyVals, type PresetKind } from './anim';
 import { currentEff } from './actions';
 import { applyPose, capturePose, findLayer, isDescendant, reparent, setKey, setPivot } from './edit';
 import { autoParent, importFiles } from './importer';
@@ -8,6 +8,11 @@ import { commit, getState, setUI } from './store';
 import type { Ease, Role } from './types';
 
 type Params = Record<string, any>;
+/** Lets a long-running command notice that the MCP side gave up on it (timeout) before it commits. */
+export interface CommandCtx {
+  cancelled: () => boolean;
+}
+const noCtx: CommandCtx = { cancelled: () => false };
 const roleValues: Role[] = ['none', 'head', 'body', 'arm', 'leg', 'accessory'];
 const easeValues: Ease[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutBack'];
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -106,7 +111,21 @@ export function getMcpState() {
       facing: doc.facing,
       flipMode: doc.flipMode,
       activeClipId: doc.activeClipId,
-      clips: doc.clips.map((c) => ({ id: c.id, name: c.name, length: c.length, loop: c.loop, trackCount: Object.keys(c.tracks).length })),
+      clips: doc.clips.map((c) => ({
+        id: c.id,
+        name: c.name,
+        length: c.length,
+        loop: c.loop,
+        preset: c.preset ?? null,
+        tracks: Object.entries(c.tracks).map(([layerId, keys]) => ({
+          layerId,
+          layerName: findLayer(doc, layerId)?.name ?? null,
+          keys: keys.map((k) => ({
+            frame: k.frame, x: k.x, y: k.y, rotation: k.rotation, scaleX: k.scaleX, scaleY: k.scaleY,
+            opacity: k.opacity, variant: k.variant, ease: k.ease,
+          })),
+        })),
+      })),
       poses: doc.poses.map((p) => ({ id: p.id, name: p.name })),
       layers: doc.layers.map((l) => layerSummary(l.id)),
     },
@@ -114,7 +133,7 @@ export function getMcpState() {
   };
 }
 
-async function importBatch(images: Params[]) {
+async function importBatch(images: Params[], ctx: CommandCtx) {
   if (!images.length) throw new Error('No images given');
   const files: File[] = [];
   const failed: string[] = [];
@@ -127,7 +146,8 @@ async function importBatch(images: Params[]) {
     }
   }
   // one batch so draw order, auto-parenting and @variants work like a drag & drop
-  const r = files.length ? await importFiles(files) : { created: [], variants: 0, bound: 0, failed: [] };
+  const r = files.length ? await importFiles(files, () => !ctx.cancelled()) : { created: [], variants: 0, bound: 0, failed: [] };
+  if (r.cancelled) throw new Error(r.cancelled);
   failed.push(...r.failed);
   if (!r.created.length && !r.variants && !r.bound) {
     throw new Error(`Nothing imported. ${failed.join('; ') || 'Unknown error'}`);
@@ -135,7 +155,7 @@ async function importBatch(images: Params[]) {
   return { layers: r.created.map(layerSummary), variantsAdded: r.variants, boundToExisting: r.bound, failed };
 }
 
-export async function executeMcpCommand(method: string, p: Params = {}) {
+export async function executeMcpCommand(method: string, p: Params = {}, ctx: CommandCtx = noCtx) {
   switch (method) {
     case 'getState':
       return getMcpState();
@@ -144,10 +164,10 @@ export async function executeMcpCommand(method: string, p: Params = {}) {
       return getState().doc.layers.map((l) => layerSummary(l.id));
 
     case 'importImages':
-      return importBatch(Array.isArray(p.images) ? p.images : []);
+      return importBatch(Array.isArray(p.images) ? p.images : [], ctx);
 
     case 'importImage': // legacy single-image form
-      return importBatch([p]);
+      return importBatch([p], ctx);
 
     case 'autoRig': {
       const refs: string[] | undefined = Array.isArray(p.layers) ? p.layers.map(String) : undefined;
@@ -267,14 +287,7 @@ export async function executeMcpCommand(method: string, p: Params = {}) {
       if (!getState().doc.layers.length) throw new Error('Import character images first');
       const clip = buildPreset(getState().doc, preset);
       commit((d) => {
-        const i = d.clips.findIndex((c) => c.name === preset);
-        if (i >= 0) {
-          clip.id = d.clips[i].id;
-          d.clips[i] = clip;
-        } else {
-          d.clips.push(clip);
-        }
-        d.activeClipId = clip.id;
+        upsertPresetClip(d, clip); // renames instead of overwriting a user clip called e.g. "Attack"
       });
       setUI({ animate: true, frame: 0, playing: !!p.play, selectedKey: null, sq: 0 });
       return {
@@ -286,6 +299,7 @@ export async function executeMcpCommand(method: string, p: Params = {}) {
     case 'addKeyframe': {
       const id = resolveLayerId(String(p.layer));
       const frame = Math.max(0, Math.round(Number(p.frame) || 0));
+      if (frame > MAX_FRAME) throw new Error(`frame must be 0..${MAX_FRAME}`);
       const ease = (p.ease ?? 'easeInOut') as Ease;
       if (!easeValues.includes(ease)) throw new Error(`Invalid easing: ${ease}`);
       if (p.variant != null) {
@@ -319,14 +333,19 @@ export async function executeMcpCommand(method: string, p: Params = {}) {
     case 'playback': {
       const action = String(p.action);
       const clip = getState().doc.clips.find((c) => c.id === getState().doc.activeClipId);
-      const clampF = (f: number) => Math.max(0, Math.min(clip?.length ?? 0, f));
+      const clampF = (f: number) => Math.max(0, Math.min(clip?.length ?? 0, Number.isFinite(f) ? f : 0));
       if (action === 'play') {
         if (!clip) throw new Error('No active animation clip');
-        setUI({ playing: true, frame: clampF(p.frame != null ? Number(p.frame) : getState().ui.frame) });
+        // like togglePlay: a finished (or past-the-end) clip starts over
+        const cur = getState().ui.frame;
+        const from = p.frame != null ? Number(p.frame) : cur >= clip.length ? 0 : cur;
+        setUI({ playing: true, animate: true, frame: clampF(from) });
       } else if (action === 'stop') {
         setUI({ playing: false, frame: clampF(p.frame != null ? Number(p.frame) : 0) });
       } else if (action === 'seek') {
-        setUI({ playing: false, frame: clampF(Number(p.frame) || 0) });
+        if (!clip) throw new Error('No active animation clip');
+        // the clip is only evaluated in Animate mode, so turn it on or the pose would not change
+        setUI({ playing: false, animate: true, frame: clampF(Number(p.frame) || 0) });
       } else {
         throw new Error(`Unsupported playback action: ${action}`);
       }
